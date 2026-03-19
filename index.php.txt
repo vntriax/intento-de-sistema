@@ -1,0 +1,147 @@
+<?php
+// index.php
+require_once 'config/database.php';
+require_once 'config/constants.php';
+
+$database = new Database();
+$conn = $database->getConnection();
+
+// Obtener configuración del ente
+$stmt = $conn->query("SELECT * FROM configuracion_ente LIMIT 1");
+$config = $stmt->fetch();
+
+// Obtener estadísticas
+$stats = [];
+$stmt = $conn->query("SELECT COUNT(*) as total FROM empleados WHERE estatus = 'ACTIVO'");
+$stats['activos'] = $stmt->fetch()['total'];
+
+$stmt = $conn->query("SELECT COUNT(*) as total FROM empleados WHERE estatus = 'EGRESADO'");
+$stats['egresados'] = $stmt->fetch()['total'];
+
+$stmt = $conn->query("SELECT COUNT(*) as total FROM calculos_prestaciones");
+$stats['calculos_prestaciones'] = $stmt->fetch()['total'];
+
+$stmt = $conn->query("SELECT COUNT(*) as total FROM calculos_fideicomiso");
+$stats['calculos_fideicomiso'] = $stmt->fetch()['total'];
+?>
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Prestaciones Sociales - <?php echo $config['nombre_ente'] ?? 'Ente Público'; ?></title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <div class="header-logo">
+                <img src="<?php echo $config['logo_path'] ?? 'img/logo_default.png'; ?>" alt="Logo">
+                <div class="header-info">
+                    <h1><?php echo $config['nombre_alcaldia'] ?? 'REPÚBLICA BOLIVARIANA DE VENEZUELA'; ?></h1>
+                    <h2><?php echo $config['nombre_fundacion'] ?? 'NOMBRE DEL ENTE'; ?></h2>
+                    <h3><?php echo $config['departamento'] ?? 'DEPARTAMENTO DE RECURSOS HUMANOS'; ?></h3>
+                </div>
+            </div>
+            <div class="header-rif">
+                <strong>RIF: <?php echo $config['rif'] ?? 'G-00000000-0'; ?></strong>
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <nav class="nav-menu no-print">
+            <ul>
+                <li><a href="index.php" class="active"><i class="fas fa-home"></i> Inicio</a></li>
+                <li><a href="configuracion.php"><i class="fas fa-cog"></i> Configuración</a></li>
+                <li><a href="empleados.php"><i class="fas fa-users"></i> Empleados</a></li>
+                <li><a href="prestaciones_calculo.php"><i class="fas fa-calculator"></i> Prestaciones</a></li>
+                <li><a href="fideicomiso_calculo.php"><i class="fas fa-piggy-bank"></i> Fideicomiso</a></li>
+                <li><a href="tasas_historicas.php"><i class="fas fa-chart-line"></i> Tasas Históricas</a></li>
+            </ul>
+        </nav>
+
+        <!-- Dashboard -->
+        <div class="card">
+            <div class="card-header">
+                <h2><i class="fas fa-tachometer-alt"></i> Panel de Control</h2>
+            </div>
+            
+            <div class="form-grid">
+                <div class="calculation-result" style="background: linear-gradient(135deg, #667eea, #764ba2); color: white;">
+                    <h3><i class="fas fa-users"></i> Empleados Activos</h3>
+                    <p style="font-size: 2.5rem; font-weight: 700;"><?php echo $stats['activos']; ?></p>
+                </div>
+                
+                <div class="calculation-result" style="background: linear-gradient(135deg, #f093fb, #f5576c); color: white;">
+                    <h3><i class="fas fa-user-clock"></i> Empleados Egresados</h3>
+                    <p style="font-size: 2.5rem; font-weight: 700;"><?php echo $stats['egresados']; ?></p>
+                </div>
+                
+                <div class="calculation-result" style="background: linear-gradient(135deg, #4facfe, #00f2fe); color: white;">
+                    <h3><i class="fas fa-file-invoice-dollar"></i> Cálculos Prestaciones</h3>
+                    <p style="font-size: 2.5rem; font-weight: 700;"><?php echo $stats['calculos_prestaciones']; ?></p>
+                </div>
+                
+                <div class="calculation-result" style="background: linear-gradient(135deg, #43e97b, #38f9d7); color: white;">
+                    <h3><i class="fas fa-coins"></i> Cálculos Fideicomiso</h3>
+                    <p style="font-size: 2.5rem; font-weight: 700;"><?php echo $stats['calculos_fideicomiso']; ?></p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Quick Actions -->
+        <div class="card">
+            <div class="card-header">
+                <h2><i class="fas fa-bolt"></i> Acciones Rápidas</h2>
+            </div>
+            
+            <div class="form-grid">
+                <a href="empleado_form.php" class="btn btn-primary">
+                    <i class="fas fa-user-plus"></i> Nuevo Empleado
+                </a>
+                <a href="prestaciones_calculo.php" class="btn btn-success">
+                    <i class="fas fa-calculator"></i> Calcular Prestaciones
+                </a>
+                <a href="fideicomiso_calculo.php" class="btn btn-warning">
+                    <i class="fas fa-piggy-bank"></i> Calcular Fideicomiso
+                </a>
+                <a href="tasas_historicas.php" class="btn btn-info">
+                    <i class="fas fa-database"></i> Gestionar Tasas
+                </a>
+            </div>
+        </div>
+
+        <!-- Información LOTTT -->
+        <div class="card">
+            <div class="card-header">
+                <h2><i class="fas fa-book"></i> Información Legal - LOTTT</h2>
+            </div>
+            
+            <div class="alert alert-info">
+                <strong><i class="fas fa-info-circle"></i> Artículo 142 LOTTT [[51]]:</strong>
+                Las prestaciones sociales se protegerán, calcularán y pagarán según lo establecido en la 
+                Ley Orgánica del Trabajo, los Trabajadores y las Trabajadoras. El cálculo considera 30 días 
+                de salario por cada año de servicio o fracción superior a 6 meses [[50]].
+            </div>
+            
+            <div class="alert alert-success">
+                <strong><i class="fas fa-check-circle"></i> Tasas Actuales BCV 2025 [[44]]:</strong>
+                Tasa Activa: <?php echo TASA_ACTIVA_ACTUAL; ?>% | 
+                Tasa Promedio: <?php echo TASA_PROMEDIO_ACTUAL; ?>% | 
+                Tasa Mora: <?php echo TASA_MORA_ACTUAL; ?>%
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>&copy; <?php echo date('Y'); ?> <?php echo $config['nombre_ente'] ?? 'Sistema de Prestaciones Sociales'; ?>. 
+            Todos los derechos reservados.</p>
+            <p>Basado en LOTTT Artículo 142 y tasas publicadas por el BCV en Gaceta Oficial [[59]].</p>
+        </footer>
+    </div>
+
+    <script src="js/calculations.js"></script>
+</body>
+</html>

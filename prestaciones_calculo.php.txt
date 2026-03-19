@@ -1,0 +1,409 @@
+<?php
+// prestaciones_calculo.php
+require_once 'config/database.php';
+require_once 'config/constants.php';
+
+$database = new Database();
+$conn = $database->getConnection();
+$calculado = false;
+$resultado = null;
+
+// Obtener empleados para el selector
+$stmt = $conn->query("SELECT id, cedula, nombre, apellido FROM empleados WHERE estatus = 'ACTIVO' ORDER BY apellido, nombre");
+$empleados = $stmt->fetchAll();
+
+// Procesar cálculo
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['empleado_id'])) {
+    $empleado_id = $_POST['empleado_id'];
+    $fecha_egreso = $_POST['fecha_egreso'];
+    
+    // Obtener datos del empleado
+    $stmt = $conn->prepare("SELECT * FROM empleados WHERE id = ?");
+    $stmt->execute([$empleado_id]);
+    $empleado = $stmt->fetch();
+    
+    if ($empleado) {
+        // Calcular tiempo de servicio
+        $fecha_ingreso = new DateTime($empleado['fecha_ingreso']);
+        $fecha_fin = new DateTime($fecha_egreso);
+        $diferencia = $fecha_ingreso->diff($fecha_fin);
+        
+        $anios = $diferencia->y;
+        $meses = $diferencia->m;
+        $dias = $diferencia->d;
+        
+        // Calcular salario diario e integral
+        $salario_mensual = $empleado['salario_mensual'] + $empleado['prima_antiguedad'] + $empleado['prima_profesional'] + $empleado['prima_por_hijos'];
+        $salario_diario = $salario_mensual / 30;
+        $salario_integral = $salario_diario + ($empleado['prima_por_hijos'] > 0 ? 0 : 0); // Ajustar según normativa
+        
+        // Cálculo Prestaciones Sociales - Artículo 142 Literal A y B [[51]]
+        // Garantía de prestaciones: 15 días por trimestre
+        $total_trimestres = floor(($anios * 12 + $meses) / 3);
+        $garantia_prestaciones = $salario_diario * 15 * $total_trimestres;
+        
+        // Intereses sobre garantía (Artículo 143 LOTTT) [[5]]
+        // Obtener tasa promedio del último periodo
+        $stmt = $conn->query("SELECT tasa_promedio FROM tasas_interes_historicas ORDER BY anio DESC, mes DESC LIMIT 1");
+        $tasa = $stmt->fetch();
+        $tasa_promedio = $tasa['tasa_promedio'] ?? TASA_PROMEDIO_ACTUAL;
+        
+        $intereses_garantia = $garantia_prestaciones * ($tasa_promedio / 100) * ($anios + $meses/12);
+        
+        // Total prestaciones sociales
+        $total_prestaciones = $garantia_prestaciones + $intereses_garantia;
+        
+        // Otros beneficios
+        // Bono vacacional fraccionado
+        $dias_vacaciones_fraccion = ($meses * 15) / 12;
+        $bono_vacacional_fraccion = $salario_diario * $dias_vacaciones_fraccion;
+        
+        // Bono fin de año fraccionado
+        $dias_bono_anio_fraccion = ($meses * 30) / 12;
+        $bono_fin_anio_fraccion = $salario_diario * $dias_bono_anio_fraccion;
+        
+        // Vacaciones no disfrutadas
+        $vacaciones_no_disfrutadas = $salario_diario * 15 * $anios;
+        
+        // Fracción de sueldos y salarios
+        $fraccion_sueldos = $salario_diario * $dias;
+        
+        // Fracción bono alimentación
+        $bono_alimentacion_diario = 208.50; // Ajustar según gaceta
+        $fraccion_bono_alimentacion = $bono_alimentacion_diario * $dias;
+        
+        // Subtotal otros beneficios
+        $subtotal_otros_beneficios = $bono_vacacional_fraccion + $bono_fin_anio_fraccion + 
+                                     $vacaciones_no_disfrutadas + $fraccion_sueldos + $fraccion_bono_alimentacion;
+        
+        // Total asignaciones
+        $total_asignaciones = $total_prestaciones + $subtotal_otros_beneficios;
+        
+        // Cálculo Artículo 142 Literal C [[50]]
+        $prestaciones_30_dias = $salario_diario * 30 * $anios;
+        if ($meses > 6) {
+            $prestaciones_30_dias += $salario_diario * 30;
+        }
+        
+        $resultado = [
+            'empleado' => $empleado,
+            'fecha_ingreso' => $empleado['fecha_ingreso'],
+            'fecha_egreso' => $fecha_egreso,
+            'tiempo_servicio' => [
+                'anios' => $anios,
+                'meses' => $meses,
+                'dias' => $dias
+            ],
+            'salarios' => [
+                'mensual' => $salario_mensual,
+                'diario' => $salario_diario,
+                'integral' => $salario_integral
+            ],
+            'prestaciones_sociales' => [
+                'garantia' => $garantia_prestaciones,
+                'intereses' => $intereses_garantia,
+                'total' => $total_prestaciones
+            ],
+            'otros_beneficios' => [
+                'bono_vacacional' => $bono_vacacional_fraccion,
+                'bono_fin_anio' => $bono_fin_anio_fraccion,
+                'vacaciones_no_disfrutadas' => $vacaciones_no_disfrutadas,
+                'fraccion_sueldos' => $fraccion_sueldos,
+                'fraccion_bono_alimentacion' => $fraccion_bono_alimentacion,
+                'subtotal' => $subtotal_otros_beneficios
+            ],
+            'totales' => [
+                'total_asignaciones' => $total_asignaciones,
+                'deducciones' => 0,
+                'total_pagar' => $total_asignaciones
+            ],
+            'articulo_142_c' => [
+                'prestaciones_30_dias' => $prestaciones_30_dias,
+                'garantia_depositada' => $garantia_prestaciones,
+                'total_general' => $prestaciones_30_dias
+            ],
+            'tasa_aplicada' => $tasa_promedio
+        ];
+        
+        $calculado = true;
+        
+        // Guardar en base de datos
+        $stmt = $conn->prepare("INSERT INTO calculos_prestaciones 
+            (empleado_id, fecha_calculo, fecha_ingreso, fecha_egreso, tiempo_servicio_anios, 
+            tiempo_servicio_meses, tiempo_servicio_dias, salario_mensual, salario_diario,
+            prestaciones_sociales_art142_ab, intereses_garantia_prestaciones,
+            fraccion_bono_vacacional, fraccion_bono_fin_anio, vacaciones_no_disfrutadas,
+            fraccion_sueldos, fraccion_bono_alimentacion, total_asignaciones, total_pagar,
+            prestaciones_30_dias, garantia_depositada, total_general_142c, tasa_promedio_aplicada)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([
+            $empleado_id, date('Y-m-d'), $empleado['fecha_ingreso'], $fecha_egreso,
+            $anios, $meses, $dias, $salario_mensual, $salario_diario,
+            $garantia_prestaciones, $intereses_garantia,
+            $bono_vacacional_fraccion, $bono_fin_anio_fraccion, $vacaciones_no_disfrutadas,
+            $fraccion_sueldos, $fraccion_bono_alimentacion, $total_asignaciones, $total_asignaciones,
+            $prestaciones_30_dias, $garantia_prestaciones, $prestaciones_30_dias, $tasa_promedio
+        ]);
+    }
+}
+?>
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cálculo de Prestaciones Sociales</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <?php include 'includes/header.php'; ?>
+        
+        <nav class="nav-menu no-print">
+            <ul>
+                <li><a href="index.php"><i class="fas fa-home"></i> Inicio</a></li>
+                <li><a href="configuracion.php"><i class="fas fa-cog"></i> Configuración</a></li>
+                <li><a href="empleados.php"><i class="fas fa-users"></i> Empleados</a></li>
+                <li><a href="prestaciones_calculo.php" class="active"><i class="fas fa-calculator"></i> Prestaciones</a></li>
+                <li><a href="fideicomiso_calculo.php"><i class="fas fa-piggy-bank"></i> Fideicomiso</a></li>
+                <li><a href="tasas_historicas.php"><i class="fas fa-chart-line"></i> Tasas Históricas</a></li>
+            </ul>
+        </nav>
+
+        <div class="card no-print">
+            <div class="card-header">
+                <h2><i class="fas fa-calculator"></i> Cálculo de Prestaciones Sociales - LOTTT Artículo 142 [[51]]</h2>
+            </div>
+            
+            <form method="POST">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label><i class="fas fa-user"></i> Seleccionar Empleado</label>
+                        <select name="empleado_id" required>
+                            <option value="">Seleccionar...</option>
+                            <?php foreach ($empleados as $emp): ?>
+                            <option value="<?php echo $emp['id']; ?>">
+                                <?php echo $emp['cedula'] . ' - ' . $emp['nombre'] . ' ' . $emp['apellido']; ?>
+                            </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label><i class="fas fa-calendar-minus"></i> Fecha de Egreso</label>
+                        <input type="date" name="fecha_egreso" value="<?php echo date('Y-m-d'); ?>" required>
+                    </div>
+                </div>
+                
+                <div style="margin-top: 20px;">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-calculator"></i> Calcular Prestaciones
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <?php if ($calculado && $resultado): ?>
+        <!-- Resultado del Cálculo -->
+        <div class="card" id="resultado-calculo">
+            <!-- Header para impresión -->
+            <div class="print-header" style="display: none;">
+                <div class="print-logo">
+                    <img src="img/logo_izq.png" alt="Logo Izq" style="height: 60px;">
+                    <div style="text-align: center;">
+                        <h3>REPÚBLICA BOLIVARIANA DE VENEZUELA</h3>
+                        <h3><?php echo $config['nombre_alcaldia'] ?? ''; ?></h3>
+                        <h3><?php echo $config['nombre_fundacion'] ?? ''; ?></h3>
+                        <h3><?php echo $config['departamento'] ?? ''; ?></h3>
+                    </div>
+                    <img src="img/logo_der.png" alt="Logo Der" style="height: 60px;">
+                </div>
+            </div>
+            
+            <div class="card-header">
+                <h2><i class="fas fa-file-invoice-dollar"></i> Liquidación de Prestaciones Sociales</h2>
+            </div>
+            
+            <!-- Datos del Empleado -->
+            <div class="calculation-result">
+                <h3 style="margin-bottom: 15px;"><i class="fas fa-user"></i> Datos del Trabajador</h3>
+                <div class="form-grid">
+                    <div><strong>Nombre:</strong> <?php echo $resultado['empleado']['nombre'] . ' ' . $resultado['empleado']['apellido']; ?></div>
+                    <div><strong>Cédula:</strong> V-<?php echo $resultado['empleado']['cedula']; ?></div>
+                    <div><strong>Cargo:</strong> <?php echo $resultado['empleado']['cargo']; ?></div>
+                    <div><strong>Tipo:</strong> <?php echo $resultado['empleado']['tipo_personal']; ?></div>
+                    <div><strong>Fecha Ingreso:</strong> <?php echo date('d/m/Y', strtotime($resultado['fecha_ingreso'])); ?></div>
+                    <div><strong>Fecha Egreso:</strong> <?php echo date('d/m/Y', strtotime($resultado['fecha_egreso'])); ?></div>
+                    <div><strong>Tiempo de Servicio:</strong> <?php echo $resultado['tiempo_servicio']['anios']; ?> años, 
+                        <?php echo $resultado['tiempo_servicio']['meses']; ?> meses, 
+                        <?php echo $resultado['tiempo_servicio']['dias']; ?> días</div>
+                    <div><strong>Motivo:</strong> <?php echo $resultado['empleado']['motivo_egreso'] ?? 'N/A'; ?></div>
+                </div>
+            </div>
+            
+            <!-- Salarios -->
+            <div class="calculation-result">
+                <h3 style="margin-bottom: 15px;"><i class="fas fa-money-bill-wave"></i> Composición Salarial</h3>
+                <div class="calculation-row">
+                    <span>Sueldo Mensual</span>
+                    <span>Bs. <?php echo number_format($resultado['salarios']['mensual'], 2, ',', '.'); ?></span>
+                </div>
+                <div class="calculation-row">
+                    <span>Sueldo Diario</span>
+                    <span>Bs. <?php echo number_format($resultado['salarios']['diario'], 2, ',', '.'); ?></span>
+                </div>
+                <div class="calculation-row total">
+                    <span>Salario Integral</span>
+                    <span>Bs. <?php echo number_format($resultado['salarios']['integral'], 2, ',', '.'); ?></span>
+                </div>
+            </div>
+            
+            <!-- Prestaciones Sociales -->
+            <div class="calculation-result">
+                <h3 style="margin-bottom: 15px;"><i class="fas fa-shield-alt"></i> Prestaciones Sociales (Art. 142 LOTTT)</h3>
+                <div class="calculation-row">
+                    <span>Prestaciones Sociales - Artículo 142 Literal "A y B"</span>
+                    <span>Bs. <?php echo number_format($resultado['prestaciones_sociales']['garantia'], 2, ',', '.'); ?></span>
+                </div>
+                <div class="calculation-row">
+                    <span>Intereses Generados por las Garantías de Prestaciones (Art. 143 LOTTT) - Tasa: <?php echo number_format($resultado['tasa_aplicada'], 2); ?>%</span>
+                    <span>Bs. <?php echo number_format($resultado['prestaciones_sociales']['intereses'], 2, ',', '.'); ?></span>
+                </div>
+                <div class="calculation-row subtotal">
+                    <span>Sub-Total Prestaciones</span>
+                    <span>Bs. <?php echo number_format($resultado['prestaciones_sociales']['total'], 2, ',', '.'); ?></span>
+                </div>
+            </div>
+            
+            <!-- Otros Beneficios -->
+            <div class="calculation-result">
+                <h3 style="margin-bottom: 15px;"><i class="fas fa-gift"></i> Otros Beneficios Generados por la Relación Laboral</h3>
+                <div class="calculation-row">
+                    <span>Fracción Bono Vacacional</span>
+                    <span>Bs. <?php echo number_format($resultado['otros_beneficios']['bono_vacacional'], 2, ',', '.'); ?></span>
+                </div>
+                <div class="calculation-row">
+                    <span>Fracción Bono Fin de Año</span>
+                    <span>Bs. <?php echo number_format($resultado['otros_beneficios']['bono_fin_anio'], 2, ',', '.'); ?></span>
+                </div>
+                <div class="calculation-row">
+                    <span>Vacaciones No Disfrutadas</span>
+                    <span>Bs. <?php echo number_format($resultado['otros_beneficios']['vacaciones_no_disfrutadas'], 2, ',', '.'); ?></span>
+                </div>
+                <div class="calculation-row">
+                    <span>Fracción de Sueldos y Salarios</span>
+                    <span>Bs. <?php echo number_format($resultado['otros_beneficios']['fraccion_sueldos'], 2, ',', '.'); ?></span>
+                </div>
+                <div class="calculation-row">
+                    <span>Fracción Bono de Alimentación</span>
+                    <span>Bs. <?php echo number_format($resultado['otros_beneficios']['fraccion_bono_alimentacion'], 2, ',', '.'); ?></span>
+                </div>
+                <div class="calculation-row subtotal">
+                    <span>Sub-Total Otros Beneficios</span>
+                    <span>Bs. <?php echo number_format($resultado['otros_beneficios']['subtotal'], 2, ',', '.'); ?></span>
+                </div>
+            </div>
+            
+            <!-- Totales -->
+            <div class="calculation-result" style="background: linear-gradient(135deg, #667eea, #764ba2); color: white;">
+                <h3 style="margin-bottom: 15px;"><i class="fas fa-total"></i> Totales</h3>
+                <div class="calculation-row" style="border-color: rgba(255,255,255,0.3);">
+                    <span>Total Asignaciones</span>
+                    <span>Bs. <?php echo number_format($resultado['totales']['total_asignaciones'], 2, ',', '.'); ?></span>
+                </div>
+                <div class="calculation-row" style="border-color: rgba(255,255,255,0.3);">
+                    <span>Deducciones</span>
+                    <span>Bs. <?php echo number_format($resultado['totales']['deducciones'], 2, ',', '.'); ?></span>
+                </div>
+                <div class="calculation-row total" style="border-color: white; font-size: 1.5rem;">
+                    <span>TOTAL A PAGAR</span>
+                    <span>Bs. <?php echo number_format($resultado['totales']['total_pagar'], 2, ',', '.'); ?></span>
+                </div>
+            </div>
+            
+            <!-- Artículo 142 Literal C -->
+            <div class="calculation-result">
+                <h3 style="margin-bottom: 15px;"><i class="fas fa-book"></i> Aplicación del Artículo 142 Literal "C" de la LOTTT [[50]]</h3>
+                <div class="calculation-row">
+                    <span>Prestaciones Sociales = 30 Días X <?php echo $resultado['salarios']['diario']; ?></span>
+                    <span>Bs. <?php echo number_format($resultado['articulo_142_c']['prestaciones_30_dias'], 2, ',', '.'); ?></span>
+                </div>
+                <div class="calculation-row">
+                    <span>Garantía Depositada (Artículo 142 Literal)</span>
+                    <span>Bs. <?php echo number_format($resultado['articulo_142_c']['garantia_depositada'], 2, ',', '.'); ?></span>
+                </div>
+                <div class="calculation-row total">
+                    <span>TOTAL GENERAL (Art. 142-C)</span>
+                    <span>Bs. <?php echo number_format($resultado['articulo_142_c']['total_general'], 2, ',', '.'); ?></span>
+                </div>
+            </div>
+            
+            <!-- Nota -->
+            <div class="alert alert-info">
+                <strong><i class="fas fa-info-circle"></i> Nota:</strong> FIDEICOMISO DENTRO DE LOS CÁLCULOS. 
+                Cálculo realizado según LOTTT Artículo 142 [[51]] y tasas publicadas por el BCV [[59]].
+            </div>
+            
+            <!-- Firmas -->
+            <div class="print-signatures" style="margin-top: 50px; display: flex; justify-content: space-around;">
+                <div class="signature-box">
+                    <p><strong>CÁLCULO DE PRESTACIONES REALIZADO POR:</strong></p>
+                    <br><br>
+                    <p>_________________________</p>
+                    <p>Lcda. Rosana del P. Bastidas</p>
+                </div>
+                <div class="signature-box">
+                    <p><strong>CÁLCULO REVISADO POR:</strong></p>
+                    <br><br>
+                    <p>_________________________</p>
+                </div>
+                <div class="signature-box">
+                    <p><strong>PRESIDENCIA:</strong></p>
+                    <br><br>
+                    <p>_________________________</p>
+                    <p>Msc. Neila Y. Silva F.</p>
+                </div>
+            </div>
+            
+            <!-- Recibe Conforme -->
+            <div style="margin-top: 50px;">
+                <h3>Recibe Conforme:</h3>
+                <br>
+                <p>Nombre y Apellido: _________________________</p>
+                <br>
+                <p>C.I.-V.- _________________________</p>
+                <br>
+                <p>Firma: _________________________</p>
+            </div>
+            
+            <!-- Botones de acción -->
+            <div class="no-print" style="margin-top: 30px;">
+                <button onclick="window.print()" class="btn btn-primary">
+                    <i class="fas fa-print"></i> Imprimir
+                </button>
+                <a href="imprimir_prestaciones.php?id=<?php echo $conn->lastInsertId(); ?>" class="btn btn-success" target="_blank">
+                    <i class="fas fa-file-pdf"></i> PDF
+                </a>
+                <a href="prestaciones_calculo.php" class="btn btn-warning">
+                    <i class="fas fa-redo"></i> Nuevo Cálculo
+                </a>
+            </div>
+        </div>
+        <?php endif; ?>
+        
+        <?php include 'includes/footer.php'; ?>
+    </div>
+    
+    <script>
+    // Mostrar header solo en impresión
+    window.addEventListener('beforeprint', function() {
+        document.querySelector('.print-header').style.display = 'block';
+    });
+    
+    window.addEventListener('afterprint', function() {
+        document.querySelector('.print-header').style.display = 'none';
+    });
+    </script>
+</body>
+</html>

@@ -1,0 +1,225 @@
+<?php
+// empleado_form.php
+require_once 'config/database.php';
+require_once 'config/constants.php';
+
+$database = new Database();
+$conn = $database->getConnection();
+$mensaje = '';
+$empleado = null;
+
+// Si hay ID, cargar empleado para editar
+if (isset($_GET['id'])) {
+    $stmt = $conn->prepare("SELECT * FROM empleados WHERE id = ?");
+    $stmt->execute([$_GET['id']]);
+    $empleado = $stmt->fetch();
+}
+
+// Procesar formulario
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $datos = [
+        'cedula' => $_POST['cedula'],
+        'nombre' => $_POST['nombre'],
+        'apellido' => $_POST['apellido'],
+        'cargo' => $_POST['cargo'],
+        'tipo_personal' => $_POST['tipo_personal'],
+        'fecha_ingreso' => $_POST['fecha_ingreso'],
+        'fecha_egreso' => $_POST['fecha_egreso'] ?: null,
+        'motivo_egreso' => $_POST['motivo_egreso'],
+        'salario_mensual' => $_POST['salario_mensual'],
+        'prima_antiguedad' => $_POST['prima_antiguedad'],
+        'prima_profesional' => $_POST['prima_profesional'],
+        'prima_por_hijos' => $_POST['prima_por_hijos'],
+        'hijos_cantidad' => $_POST['hijos_cantidad'],
+        'fecha_inicio_prima_hijos' => $_POST['fecha_inicio_prima_hijos'],
+        'estatus' => $_POST['estatus']
+    ];
+    
+    if (isset($_POST['id']) && !empty($_POST['id'])) {
+        // Actualizar
+        $stmt = $conn->prepare("UPDATE empleados SET 
+            cedula = ?, nombre = ?, apellido = ?, cargo = ?, tipo_personal = ?,
+            fecha_ingreso = ?, fecha_egreso = ?, motivo_egreso = ?, salario_mensual = ?,
+            prima_antiguedad = ?, prima_profesional = ?, prima_por_hijos = ?,
+            hijos_cantidad = ?, fecha_inicio_prima_hijos = ?, estatus = ?
+            WHERE id = ?");
+        $stmt->execute([
+            $datos['cedula'], $datos['nombre'], $datos['apellido'], $datos['cargo'], $datos['tipo_personal'],
+            $datos['fecha_ingreso'], $datos['fecha_egreso'], $datos['motivo_egreso'], $datos['salario_mensual'],
+            $datos['prima_antiguedad'], $datos['prima_profesional'], $datos['prima_por_hijos'],
+            $datos['hijos_cantidad'], $datos['fecha_inicio_prima_hijos'], $datos['estatus'],
+            $_POST['id']
+        ]);
+    } else {
+        // Insertar
+        $stmt = $conn->prepare("INSERT INTO empleados 
+            (cedula, nombre, apellido, cargo, tipo_personal, fecha_ingreso, fecha_egreso, motivo_egreso,
+            salario_mensual, prima_antiguedad, prima_profesional, prima_por_hijos, hijos_cantidad,
+            fecha_inicio_prima_hijos, estatus) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([
+            $datos['cedula'], $datos['nombre'], $datos['apellido'], $datos['cargo'], $datos['tipo_personal'],
+            $datos['fecha_ingreso'], $datos['fecha_egreso'], $datos['motivo_egreso'], $datos['salario_mensual'],
+            $datos['prima_antiguedad'], $datos['prima_profesional'], $datos['prima_por_hijos'],
+            $datos['hijos_cantidad'], $datos['fecha_inicio_prima_hijos'], $datos['estatus']
+        ]);
+    }
+    
+    $mensaje = '<div class="alert alert-success"><i class="fas fa-check-circle"></i> Empleado guardado exitosamente.</div>';
+    
+    if (!isset($_POST['id']) || empty($_POST['id'])) {
+        $empleado_id = $conn->lastInsertId();
+        header("Location: empleado_form.php?id=$empleado_id");
+        exit;
+    }
+}
+?>
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><?php echo $empleado ? 'Editar' : 'Nuevo'; ?> Empleado</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <?php include 'includes/header.php'; ?>
+        
+        <nav class="nav-menu no-print">
+            <ul>
+                <li><a href="index.php"><i class="fas fa-home"></i> Inicio</a></li>
+                <li><a href="configuracion.php"><i class="fas fa-cog"></i> Configuración</a></li>
+                <li><a href="empleados.php" class="active"><i class="fas fa-users"></i> Empleados</a></li>
+                <li><a href="prestaciones_calculo.php"><i class="fas fa-calculator"></i> Prestaciones</a></li>
+                <li><a href="fideicomiso_calculo.php"><i class="fas fa-piggy-bank"></i> Fideicomiso</a></li>
+                <li><a href="tasas_historicas.php"><i class="fas fa-chart-line"></i> Tasas Históricas</a></li>
+            </ul>
+        </nav>
+
+        <div class="card">
+            <div class="card-header">
+                <h2><i class="fas fa-user-edit"></i> <?php echo $empleado ? 'Editar' : 'Nuevo'; ?> Empleado</h2>
+            </div>
+            
+            <?php echo $mensaje; ?>
+            
+            <form method="POST">
+                <?php if ($empleado): ?>
+                    <input type="hidden" name="id" value="<?php echo $empleado['id']; ?>">
+                <?php endif; ?>
+                
+                <h3 style="margin-bottom: 15px; color: var(--primary-color);"><i class="fas fa-user"></i> Datos Personales</h3>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label><i class="fas fa-id-card"></i> Cédula de Identidad</label>
+                        <input type="text" name="cedula" value="<?php echo htmlspecialchars($empleado['cedula'] ?? ''); ?>" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label><i class="fas fa-user"></i> Nombre</label>
+                        <input type="text" name="nombre" value="<?php echo htmlspecialchars($empleado['nombre'] ?? ''); ?>" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label><i class="fas fa-user"></i> Apellido</label>
+                        <input type="text" name="apellido" value="<?php echo htmlspecialchars($empleado['apellido'] ?? ''); ?>" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label><i class="fas fa-briefcase"></i> Cargo</label>
+                        <input type="text" name="cargo" value="<?php echo htmlspecialchars($empleado['cargo'] ?? ''); ?>">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label><i class="fas fa-user-tag"></i> Tipo de Personal</label>
+                        <select name="tipo_personal">
+                            <option value="DIRECTIVO" <?php echo ($empleado['tipo_personal'] ?? '') === 'DIRECTIVO' ? 'selected' : ''; ?>>Directivo</option>
+                            <option value="EMPLEADO" <?php echo ($empleado['tipo_personal'] ?? '') === 'EMPLEADO' ? 'selected' : ''; ?>>Empleado</option>
+                            <option value="OBRERO" <?php echo ($empleado['tipo_personal'] ?? '') === 'OBRERO' ? 'selected' : ''; ?>>Obrero</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label><i class="fas fa-calendar-check"></i> Estatus</label>
+                        <select name="estatus">
+                            <option value="ACTIVO" <?php echo ($empleado['estatus'] ?? 'ACTIVO') === 'ACTIVO' ? 'selected' : ''; ?>>Activo</option>
+                            <option value="EGRESADO" <?php echo ($empleado['estatus'] ?? '') === 'EGRESADO' ? 'selected' : ''; ?>>Egresado</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <h3 style="margin: 25px 0 15px; color: var(--primary-color);"><i class="fas fa-calendar-alt"></i> Datos Laborales</h3>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label><i class="fas fa-calendar-plus"></i> Fecha de Ingreso</label>
+                        <input type="date" name="fecha_ingreso" value="<?php echo htmlspecialchars($empleado['fecha_ingreso'] ?? ''); ?>" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label><i class="fas fa-calendar-minus"></i> Fecha de Egreso</label>
+                        <input type="date" name="fecha_egreso" value="<?php echo htmlspecialchars($empleado['fecha_egreso'] ?? ''); ?>">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label><i class="fas fa-sign-out-alt"></i> Motivo de Egreso</label>
+                        <select name="motivo_egreso">
+                            <option value="">Seleccionar...</option>
+                            <option value="RENUNCIA" <?php echo ($empleado['motivo_egreso'] ?? '') === 'RENUNCIA' ? 'selected' : ''; ?>>Renuncia</option>
+                            <option value="DESPIDO" <?php echo ($empleado['motivo_egreso'] ?? '') === 'DESPIDO' ? 'selected' : ''; ?>>Despido</option>
+                            <option value="JUBILACION" <?php echo ($empleado['motivo_egreso'] ?? '') === 'JUBILACION' ? 'selected' : ''; ?>>Jubilación</option>
+                            <option value="REMOCION" <?php echo ($empleado['motivo_egreso'] ?? '') === 'REMOCION' ? 'selected' : ''; ?>>Remoción</option>
+                            <option value="FIN_CONTRATO" <?php echo ($empleado['motivo_egreso'] ?? '') === 'FIN_CONTRATO' ? 'selected' : ''; ?>>Fin de Contrato</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <h3 style="margin: 25px 0 15px; color: var(--primary-color);"><i class="fas fa-money-bill-wave"></i> Datos Salariales</h3>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label><i class="fas fa-coins"></i> Sueldo Mensual (Bs.)</label>
+                        <input type="number" step="0.01" name="salario_mensual" value="<?php echo htmlspecialchars($empleado['salario_mensual'] ?? '0'); ?>">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label><i class="fas fa-clock"></i> Prima de Antigüedad (Bs.)</label>
+                        <input type="number" step="0.01" name="prima_antiguedad" value="<?php echo htmlspecialchars($empleado['prima_antiguedad'] ?? '0'); ?>">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label><i class="fas fa-graduation-cap"></i> Prima Profesional (Bs.)</label>
+                        <input type="number" step="0.01" name="prima_profesional" value="<?php echo htmlspecialchars($empleado['prima_profesional'] ?? '0'); ?>">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label><i class="fas fa-child"></i> Prima por Hijos (Bs.) - Fijo: <?php echo PRIMA_POR_HIJOS_FIJA; ?></label>
+                        <input type="number" step="0.01" name="prima_por_hijos" value="<?php echo htmlspecialchars($empleado['prima_por_hijos'] ?? '0'); ?>">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label><i class="fas fa-baby"></i> Cantidad de Hijos</label>
+                        <input type="number" name="hijos_cantidad" value="<?php echo htmlspecialchars($empleado['hijos_cantidad'] ?? '0'); ?>">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label><i class="fas fa-calendar-star"></i> Fecha Inicio Prima Hijos</label>
+                        <input type="date" name="fecha_inicio_prima_hijos" value="<?php echo htmlspecialchars($empleado['fecha_inicio_prima_hijos'] ?? ''); ?>">
+                    </div>
+                </div>
+                
+                <div style="margin-top: 30px;">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save"></i> Guardar Empleado
+                    </button>
+                    <a href="empleados.php" class="btn btn-warning">
+                        <i class="fas fa-arrow-left"></i> Volver
+                    </a>
+                </div>
+            </form>
+        </div>
+        
+        <?php include 'includes/footer.php'; ?>
+    </div>
+</body>
+</html>

@@ -1,0 +1,205 @@
+<?php
+// tasas_historicas.php
+require_once 'config/database.php';
+
+$database = new Database();
+$conn = $database->getConnection();
+$mensaje = '';
+
+// Procesar nueva tasa
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $stmt = $conn->prepare("INSERT INTO tasas_interes_historicas 
+        (anio, mes, fecha_publicacion, gaceta_oficial_numero, tasa_activa, tasa_pasiva, tasa_promedio, tasa_mora, reconversion_monetaria, factor_reconversion)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    $stmt->execute([
+        $_POST['anio'], $_POST['mes'], $_POST['fecha_publicacion'], $_POST['gaceta_oficial_numero'],
+        $_POST['tasa_activa'], $_POST['tasa_pasiva'], $_POST['tasa_promedio'], $_POST['tasa_mora'],
+        $_POST['reconversion_monetaria'], $_POST['factor_reconversion']
+    ]);
+    $mensaje = '<div class="alert alert-success"><i class="fas fa-check-circle"></i> Tasa agregada exitosamente.</div>';
+}
+
+// Obtener todas las tasas
+$stmt = $conn->query("SELECT * FROM tasas_interes_historicas ORDER BY anio DESC, mes DESC");
+$tasas = $stmt->fetchAll();
+
+// Obtener reconversiones
+$stmt = $conn->query("SELECT * FROM reconversiones_monetarias ORDER BY fecha_vigencia");
+$reconversiones = $stmt->fetchAll();
+?>
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tasas Históricas - BCV</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <?php include 'includes/header.php'; ?>
+        
+        <nav class="nav-menu no-print">
+            <ul>
+                <li><a href="index.php"><i class="fas fa-home"></i> Inicio</a></li>
+                <li><a href="configuracion.php"><i class="fas fa-cog"></i> Configuración</a></li>
+                <li><a href="empleados.php"><i class="fas fa-users"></i> Empleados</a></li>
+                <li><a href="prestaciones_calculo.php"><i class="fas fa-calculator"></i> Prestaciones</a></li>
+                <li><a href="fideicomiso_calculo.php"><i class="fas fa-piggy-bank"></i> Fideicomiso</a></li>
+                <li><a href="tasas_historicas.php" class="active"><i class="fas fa-chart-line"></i> Tasas Históricas</a></li>
+            </ul>
+        </nav>
+
+        <div class="card">
+            <div class="card-header">
+                <h2><i class="fas fa-database"></i> Tasas de Interés Históricas - BCV [[59]]</h2>
+            </div>
+            
+            <?php echo $mensaje; ?>
+            
+            <!-- Formulario Nueva Tasa -->
+            <div class="no-print">
+                <h3 style="margin-bottom: 15px;"><i class="fas fa-plus-circle"></i> Agregar Nueva Tasa</h3>
+                <form method="POST">
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label>Año</label>
+                            <select name="anio">
+                                <?php for ($a = 1999; $a <= date('Y'); $a++): ?>
+                                <option value="<?php echo $a; ?>"><?php echo $a; ?></option>
+                                <?php endfor; ?>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Mes</label>
+                            <select name="mes">
+                                <?php for ($m = 1; $m <= 12; $m++): ?>
+                                <option value="<?php echo $m; ?>"><?php $MESES_ESPANOL[$m]; ?></option>
+                                <?php endfor; ?>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Fecha Publicación</label>
+                            <input type="date" name="fecha_publicacion" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Gaceta Oficial N°</label>
+                            <input type="text" name="gaceta_oficial_numero" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Tasa Activa (%)</label>
+                            <input type="number" step="0.01" name="tasa_activa" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Tasa Pasiva (%)</label>
+                            <input type="number" step="0.01" name="tasa_pasiva">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Tasa Promedio (%)</label>
+                            <input type="number" step="0.01" name="tasa_promedio" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Tasa Mora (%)</label>
+                            <input type="number" step="0.01" name="tasa_mora">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Reconversión</label>
+                            <select name="reconversion_monetaria">
+                                <option value="NINGUNA">Ninguna</option>
+                                <option value="2008">2008 (3 ceros)</option>
+                                <option value="2018">2018 (5 ceros)</option>
+                                <option value="2021">2021 (6 ceros)</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Factor Reconversión</label>
+                            <input type="number" step="0.000001" name="factor_reconversion" value="1.000000">
+                        </div>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save"></i> Guardar Tasa
+                    </button>
+                </form>
+            </div>
+            
+            <!-- Tabla de Tasas -->
+            <h3 style="margin: 30px 0 15px;"><i class="fas fa-table"></i> Historial de Tasas</h3>
+            <div class="table-responsive">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Año</th>
+                            <th>Mes</th>
+                            <th>Gaceta Oficial</th>
+                            <th>Tasa Activa</th>
+                            <th>Tasa Promedio</th>
+                            <th>Tasa Mora</th>
+                            <th>Reconversión</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($tasas as $tasa): ?>
+                        <tr>
+                            <td><?php echo $tasa['anio']; ?></td>
+                            <td><?php echo $MESES_ESPANOL[$tasa['mes']]; ?></td>
+                            <td><?php echo $tasa['gaceta_oficial_numero']; ?></td>
+                            <td><?php echo number_format($tasa['tasa_activa'], 2); ?>%</td>
+                            <td><?php echo number_format($tasa['tasa_promedio'], 2); ?>%</td>
+                            <td><?php echo number_format($tasa['tasa_mora'], 2); ?>%</td>
+                            <td><?php echo $tasa['reconversion_monetaria']; ?></td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- Reconversiones Monetarias -->
+        <div class="card">
+            <div class="card-header">
+                <h2><i class="fas fa-exchange-alt"></i> Reconversiones Monetarias Venezuela [[21]], [[24]], [[30]]</h2>
+            </div>
+            
+            <div class="table-responsive">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Nombre</th>
+                            <th>Fecha Vigencia</th>
+                            <th>Ceros Eliminados</th>
+                            <th>Factor Conversión</th>
+                            <th>Moneda Anterior</th>
+                            <th>Moneda Nueva</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($reconversiones as $reconv): ?>
+                        <tr>
+                            <td><?php echo $reconv['nombre']; ?></td>
+                            <td><?php echo date('d/m/Y', strtotime($reconv['fecha_vigencia'])); ?></td>
+                            <td><?php echo $reconv['ceros_eliminados']; ?></td>
+                            <td><?php echo number_format($reconv['factor_conversion'], 6); ?></td>
+                            <td><?php echo $reconv['moneda_anterior']; ?></td>
+                            <td><?php echo $reconv['moneda_nueva']; ?></td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <?php include 'includes/footer.php'; ?>
+    </div>
+</body>
+</html>

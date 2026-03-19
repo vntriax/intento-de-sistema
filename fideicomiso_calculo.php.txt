@@ -1,0 +1,256 @@
+<?php
+// fideicomiso_calculo.php
+require_once 'config/database.php';
+require_once 'config/constants.php';
+
+$database = new Database();
+$conn = $database->getConnection();
+$calculado = false;
+$resultado = null;
+
+// Obtener empleados
+$stmt = $conn->query("SELECT id, cedula, nombre, apellido FROM empleados WHERE estatus = 'ACTIVO' ORDER BY apellido, nombre");
+$empleados = $stmt->fetchAll();
+
+// Procesar cálculo
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['empleado_id'])) {
+    $empleado_id = $_POST['empleado_id'];
+    $anio_inicio = $_POST['anio_inicio'];
+    $anio_fin = $_POST['anio_fin'];
+    
+    // Obtener datos del empleado
+    $stmt = $conn->prepare("SELECT * FROM empleados WHERE id = ?");
+    $stmt->execute([$empleado_id]);
+    $empleado = $stmt->fetch();
+    
+    if ($empleado) {
+        // Obtener historial salarial
+        $stmt = $conn->prepare("SELECT * FROM historial_salarial WHERE empleado_id = ? ORDER BY fecha_inicio");
+        $stmt->execute([$empleado_id]);
+        $historial = $stmt->fetchAll();
+        
+        // Calcular alícuotas mensuales
+        $alicuotas = [];
+        $total_garantia = 0;
+        $total_intereses = 0;
+        
+        for ($anio = $anio_inicio; $anio <= $anio_fin; $anio++) {
+            for ($mes = 1; $mes <= 12; $mes++) {
+                // Obtener salario del mes
+                $salario_base = $empleado['salario_mensual'];
+                
+                // Calcular alícuota vacacional (15 días / 12 meses)
+                $alicuota_vacacional = ($salario_base / 30) * 15 / 12;
+                
+                // Calcular alícuota aguinaldo (30 días / 12 meses)
+                $alicuota_aguinaldo = ($salario_base / 30) * 30 / 12;
+                
+                // Salario integral
+                $salario_integral = $salario_base + $alicuota_vacacional + $alicuota_aguinaldo + $empleado['prima_por_hijos'];
+                
+                // Garantía trimestral (15 días por trimestre)
+                $garantia_trimestral = ($salario_integral / 30) * 15;
+                
+                // Obtener tasa del mes
+                $stmt = $conn->prepare("SELECT tasa_promedio FROM tasas_interes_historicas WHERE anio = ? AND mes = ?");
+                $stmt->execute([$anio, $mes]);
+                $tasa_data = $stmt->fetch();
+                $tasa_promedio = $tasa_data['tasa_promedio'] ?? TASA_PROMEDIO_ACTUAL;
+                
+                // Calcular intereses
+                $intereses_mes = $garantia_trimestral * ($tasa_promedio / 100) / 12;
+                
+                $alicuotas[] = [
+                    'anio' => $anio,
+                    'mes' => $mes,
+                    'salario_base' => $salario_base,
+                    'alicuota_vacacional' => $alicuota_vacacional,
+                    'alicuota_aguinaldo' => $alicuota_aguinaldo,
+                    'prima_hijos' => $empleado['prima_por_hijos'],
+                    'salario_integral' => $salario_integral,
+                    'garantia' => $garantia_trimestral,
+                    'tasa' => $tasa_promedio,
+                    'intereses' => $intereses_mes
+                ];
+                
+                $total_garantia += $garantia_trimestral;
+                $total_intereses += $intereses_mes;
+            }
+        }
+        
+        $resultado = [
+            'empleado' => $empleado,
+            'periodo' => [
+                'inicio' => $anio_inicio,
+                'fin' => $anio_fin
+            ],
+            'alicuotas' => $alicuotas,
+            'totales' => [
+                'garantia' => $total_garantia,
+                'intereses' => $total_intereses,
+                'total' => $total_garantia + $total_intereses
+            ]
+        ];
+        
+        $calculado = true;
+        
+        // Guardar en base de datos
+        $stmt = $conn->prepare("INSERT INTO calculos_fideicomiso 
+            (empleado_id, fecha_calculo, periodo_inicio, periodo_fin, salario_base,
+            total_garantia_prestaciones, total_intereses_garantia, total_general)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([
+            $empleado_id, date('Y-m-d'), "$anio_inicio-01-01", "$anio_fin-12-31",
+            $empleado['salario_mensual'], $total_garantia, $total_intereses, $total_garantia + $total_intereses
+        ]);
+    }
+}
+?>
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cálculo de Fideicomiso</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <?php include 'includes/header.php'; ?>
+        
+        <nav class="nav-menu no-print">
+            <ul>
+                <li><a href="index.php"><i class="fas fa-home"></i> Inicio</a></li>
+                <li><a href="configuracion.php"><i class="fas fa-cog"></i> Configuración</a></li>
+                <li><a href="empleados.php"><i class="fas fa-users"></i> Empleados</a></li>
+                <li><a href="prestaciones_calculo.php"><i class="fas fa-calculator"></i> Prestaciones</a></li>
+                <li><a href="fideicomiso_calculo.php" class="active"><i class="fas fa-piggy-bank"></i> Fideicomiso</a></li>
+                <li><a href="tasas_historicas.php"><i class="fas fa-chart-line"></i> Tasas Históricas</a></li>
+            </ul>
+        </nav>
+
+        <div class="card no-print">
+            <div class="card-header">
+                <h2><i class="fas fa-piggy-bank"></i> Cálculo de Fideicomiso - BCV [[59]]</h2>
+            </div>
+            
+            <form method="POST">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label><i class="fas fa-user"></i> Seleccionar Empleado</label>
+                        <select name="empleado_id" required>
+                            <option value="">Seleccionar...</option>
+                            <?php foreach ($empleados as $emp): ?>
+                            <option value="<?php echo $emp['id']; ?>">
+                                <?php echo $emp['cedula'] . ' - ' . $emp['nombre'] . ' ' . $emp['apellido']; ?>
+                            </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label><i class="fas fa-calendar"></i> Año Inicio</label>
+                        <select name="anio_inicio">
+                            <?php for ($a = 1999; $a <= date('Y'); $a++): ?>
+                            <option value="<?php echo $a; ?>" <?php echo $a == date('Y') ? 'selected' : ''; ?>><?php echo $a; ?></option>
+                            <?php endfor; ?>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label><i class="fas fa-calendar"></i> Año Fin</label>
+                        <select name="anio_fin">
+                            <?php for ($a = 1999; $a <= date('Y'); $a++): ?>
+                            <option value="<?php echo $a; ?>" <?php echo $a == date('Y') ? 'selected' : ''; ?>><?php echo $a; ?></option>
+                            <?php endfor; ?>
+                        </select>
+                    </div>
+                </div>
+                
+                <div style="margin-top: 20px;">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-calculator"></i> Calcular Fideicomiso
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <?php if ($calculado && $resultado): ?>
+        <div class="card" id="resultado-fideicomiso">
+            <div class="card-header">
+                <h2><i class="fas fa-file-invoice-dollar"></i> Liquidación de Fideicomiso</h2>
+            </div>
+            
+            <!-- Datos del Empleado -->
+            <div class="calculation-result">
+                <h3><i class="fas fa-user"></i> Datos del Trabajador</h3>
+                <div class="form-grid">
+                    <div><strong>Nombre:</strong> <?php echo $resultado['empleado']['nombre'] . ' ' . $resultado['empleado']['apellido']; ?></div>
+                    <div><strong>Cédula:</strong> V-<?php echo $resultado['empleado']['cedula']; ?></div>
+                    <div><strong>Período:</strong> <?php echo $resultado['periodo']['inicio']; ?> - <?php echo $resultado['periodo']['fin']; ?></div>
+                </div>
+            </div>
+            
+            <!-- Tabla de Alícuotas -->
+            <div class="table-responsive">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Fecha</th>
+                            <th>Salario Base</th>
+                            <th>Alícuota Vacacional</th>
+                            <th>Alícuota Aguinaldo</th>
+                            <th>Prima Hijos</th>
+                            <th>Salario Integral</th>
+                            <th>Garantía</th>
+                            <th>Tasa %</th>
+                            <th>Intereses</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($resultado['alicuotas'] as $alicuota): ?>
+                        <tr>
+                            <td><?php echo sprintf('%02d/%04d', $alicuota['mes'], $alicuota['anio']); ?></td>
+                            <td>Bs. <?php echo number_format($alicuota['salario_base'], 2, ',', '.'); ?></td>
+                            <td>Bs. <?php echo number_format($alicuota['alicuota_vacacional'], 2, ',', '.'); ?></td>
+                            <td>Bs. <?php echo number_format($alicuota['alicuota_aguinaldo'], 2, ',', '.'); ?></td>
+                            <td>Bs. <?php echo number_format($alicuota['prima_hijos'], 2, ',', '.'); ?></td>
+                            <td>Bs. <?php echo number_format($alicuota['salario_integral'], 2, ',', '.'); ?></td>
+                            <td>Bs. <?php echo number_format($alicuota['garantia'], 2, ',', '.'); ?></td>
+                            <td><?php echo number_format($alicuota['tasa'], 2); ?>%</td>
+                            <td>Bs. <?php echo number_format($alicuota['intereses'], 2, ',', '.'); ?></td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                    <tfoot>
+                        <tr class="highlight">
+                            <td colspan="6"><strong>TOTALES</strong></td>
+                            <td><strong>Bs. <?php echo number_format($resultado['totales']['garantia'], 2, ',', '.'); ?></strong></td>
+                            <td></td>
+                            <td><strong>Bs. <?php echo number_format($resultado['totales']['intereses'], 2, ',', '.'); ?></strong></td>
+                        </tr>
+                        <tr style="background: linear-gradient(135deg, var(--primary-color), var(--secondary-color)); color: white;">
+                            <td colspan="8"><strong>TOTAL GENERAL FIDEICOMISO</strong></td>
+                            <td><strong>Bs. <?php echo number_format($resultado['totales']['total'], 2, ',', '.'); ?></strong></td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+            
+            <!-- Botones -->
+            <div class="no-print" style="margin-top: 30px;">
+                <button onclick="window.print()" class="btn btn-primary">
+                    <i class="fas fa-print"></i> Imprimir
+                </button>
+                <a href="fideicomiso_calculo.php" class="btn btn-warning">
+                    <i class="fas fa-redo"></i> Nuevo Cálculo
+                </a>
+            </div>
+        </div>
+        <?php endif; ?>
+        
+        <?php include 'includes/footer.php'; ?>
+    </div>
+</body>
+</html>
