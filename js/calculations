@@ -1,0 +1,112 @@
+// js/calculations.js
+
+// Calcular tiempo de servicio
+function calcularTiempoServicio(fechaIngreso, fechaEgreso) {
+    const inicio = new Date(fechaIngreso);
+    const fin = new Date(fechaEgreso);
+    
+    let anios = fin.getFullYear() - inicio.getFullYear();
+    let meses = fin.getMonth() - inicio.getMonth();
+    let dias = fin.getDate() - inicio.getDate();
+    
+    if (dias < 0) {
+        meses--;
+        dias += new Date(fin.getFullYear(), fin.getMonth(), 0).getDate();
+    }
+    
+    if (meses < 0) {
+        anios--;
+        meses += 12;
+    }
+    
+    return { anios, meses, dias };
+}
+
+// Calcular salario integral
+function calcularSalarioIntegral(salarioBase, alicuotaVacacional, alicuotaAguinaldo, primaHijos) {
+    return salarioBase + alicuotaVacacional + alicuotaAguinaldo + primaHijos;
+}
+
+// Calcular alícuota vacacional
+function calcularAlicuotaVacacional(salarioMensual) {
+    return (salarioMensual / 30) * 15 / 12;
+}
+
+// Calcular alícuota aguinaldo
+function calcularAlicuotaAguinaldo(salarioMensual) {
+    return (salarioMensual / 30) * 30 / 12;
+}
+
+// Calcular garantía trimestral
+function calcularGarantiaTrimestral(salarioIntegral) {
+    return (salarioIntegral / 30) * 15;
+}
+
+// Calcular intereses
+function calcularIntereses(monto, tasa, periodoAnios) {
+    return monto * (tasa / 100) * periodoAnios;
+}
+
+// Calcular prestaciones 30 días por año (Art. 142-C)
+function calcularPrestaciones30Dias(salarioDiario, anios, meses) {
+    let total = salarioDiario * 30 * anios;
+    if (meses > 6) {
+        total += salarioDiario * 30;
+    }
+    return total;
+}
+
+// Formatear moneda
+function formatoMoneda(monto) {
+    return 'Bs. ' + monto.toFixed(2).replace(/\d(?=(\d{3})+\.)/g, '$&,');
+}
+
+// Validar formulario
+function validarFormulario(formId) {
+    const form = document.getElementById(formId);
+    const inputs = form.querySelectorAll('input[required], select[required]');
+    let valido = true;
+    
+    inputs.forEach(input => {
+        if (!input.value.trim()) {
+            input.style.borderColor = 'var(--danger-color)';
+            valido = false;
+        } else {
+            input.style.borderColor = 'var(--border-color)';
+        }
+    });
+    
+    return valido;
+}
+
+// Exportar a PDF (usando jsPDF)
+function exportarPDF(elementId, filename) {
+    if (typeof html2pdf === 'undefined') {
+        alert('Por favor incluya la librería html2pdf.js');
+        return;
+    }
+    
+    const element = document.getElementById(elementId);
+    const opt = {
+        margin: 10,
+        filename: filename + '.pdf',
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2 },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+    };
+    
+    html2pdf().set(opt).from(element).save();
+}
+
+// Calcular automáticamente en tiempo real
+function calcularEnTiempoReal() {
+    // Implementar cálculos en tiempo real según necesite
+    console.log('Calculando en tiempo real...');
+}
+
+// Inicializar
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('Sistema de Prestaciones Sociales cargado');
+    console.log('LOTTT Artículo 142 activo');
+    console.log('Tasas BCV configuradas');
+});
