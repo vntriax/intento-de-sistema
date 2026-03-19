@@ -1,0 +1,27 @@
+<?php
+// includes/functions.php
+function obtenerTasaPorFecha($fecha) {
+    global $conn;
+    $anio = date('Y', strtotime($fecha));
+    $mes = date('n', strtotime($fecha));
+    
+    $stmt = $conn->prepare("SELECT * FROM tasas_interes_historicas WHERE anio = ? AND mes = ?");
+    $stmt->execute([$anio, $mes]);
+    return $stmt->fetch();
+}
+
+function calcularDiasEntreFechas($fechaInicio, $fechaFin) {
+    $inicio = new DateTime($fechaInicio);
+    $fin = new DateTime($fechaFin);
+    $interval = $inicio->diff($fin);
+    return $interval->days;
+}
+
+function obtenerFactorReconversion($fecha) {
+    global $conn;
+    $stmt = $conn->prepare("SELECT factor_conversion FROM reconversiones_monetarias WHERE fecha_vigencia <= ? ORDER BY fecha_vigencia DESC LIMIT 1");
+    $stmt->execute([$fecha]);
+    $result = $stmt->fetch();
+    return $result ? $result['factor_conversion'] : 1.0;
+}
+?>

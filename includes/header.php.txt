@@ -1,0 +1,20 @@
+<?php
+// includes/header.php
+require_once 'config/database.php';
+$conn = (new Database())->getConnection();
+$stmt = $conn->query("SELECT * FROM configuracion_ente LIMIT 1");
+$config = $stmt->fetch();
+?>
+<div class="header">
+    <div class="header-logo">
+        <img src="<?php echo $config['logo_path'] ?? 'img/logo_default.png'; ?>" alt="Logo">
+        <div class="header-info">
+            <h1><?php echo $config['nombre_alcaldia'] ?? 'REPÚBLICA BOLIVARIANA DE VENEZUELA'; ?></h1>
+            <h2><?php echo $config['nombre_fundacion'] ?? 'ENTE PÚBLICO'; ?></h2>
+            <h3><?php echo $config['departamento'] ?? 'RECURSOS HUMANOS'; ?></h3>
+        </div>
+    </div>
+    <div class="header-rif">
+        <strong>RIF: <?php echo $config['rif'] ?? 'G-00000000-0'; ?></strong>
+    </div>
+</div>
