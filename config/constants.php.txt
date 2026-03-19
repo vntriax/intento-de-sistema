@@ -1,0 +1,30 @@
+<?php
+// config/constants.php
+// Constantes del sistema basadas en LOTTT [[51]], [[55]]
+
+define('LOTTT_ARTICULO_142', true);
+define('DIAS_PRESTACIONES_POR_ANIO', 30); // Artículo 142 Literal C [[50]]
+define('DIAS_GARANTIA_TRIMESTRAL', 15); // Garantía de prestaciones
+define('PRIMA_POR_HIJOS_FIJA', 12.50); // Monto fijo por hijo
+define('DIAS_VACACIONES_MINIMO', 15);
+define('DIAS_BONO_VACACIONAL', 15);
+define('DIAS_BONO_FIN_ANIO', 30);
+define('MESES_ANIO', 12);
+define('DIAS_MES_PROMEDIO', 30);
+
+// Tasas actuales BCV 2025 [[19]], [[44]], [[66]]
+define('TASA_ACTIVA_ACTUAL', 58.95);
+define('TASA_PROMEDIO_ACTUAL', 47.47);
+define('TASA_MORA_ACTUAL', 68.95);
+
+// Reconversión monetaria actual [[21]], [[30]]
+define('MONEDA_ACTUAL', 'Bolívar Digital');
+define('FACTOR_RECONVERSION_ACTUAL', 1.000000);
+
+// Meses del año
+$MESES_ESPANOL = [
+    1 => 'Enero', 2 => 'Febrero', 3 => 'Marzo', 4 => 'Abril',
+    5 => 'Mayo', 6 => 'Junio', 7 => 'Julio', 8 => 'Agosto',
+    9 => 'Septiembre', 10 => 'Octubre', 11 => 'Noviembre', 12 => 'Diciembre'
+];
+?>
